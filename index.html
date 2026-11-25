@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>籃球射籃分析 (半身) - 角度微調版</title>
+  <title>籃球射籃分析 (半身) - 比例修正版</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -152,7 +152,6 @@
         <div id="rec-indicator">● 錄影中 4.0s</div>
       </div>
 
-      <!-- 微調滑桿（分析模式顯示） -->
       <div id="scrubber-box" class="scrubber-box">
         <div style="display:flex; justify-content:space-between; font-size:13px; color:#94a3b8;">
           <span>手動微調影格 (如 AI 捉錯格可左右拉動)</span>
@@ -167,7 +166,6 @@
       </div>
     </div>
 
-    <!-- 右側評語與數據區 -->
     <div class="side-panel">
       <div id="result-tabs" class="tab-group" style="display:none;">
         <button id="tab-set" class="btn-tab active">1. 準備舉球</button>
@@ -214,23 +212,27 @@
     const snapCanvas = document.createElement('canvas');
     const snapCtx = snapCanvas.getContext('2d');
 
-    function calcAngle(a, b, c) {
-      const rad = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+    // 修正：乘返實際畫面闊度 w 同高度 h，避免直向/橫向比例拉扁角度
+    function calcAngle(a, b, c, w, h) {
+      const ax = a.x * w, ay = a.y * h;
+      const bx = b.x * w, by = b.y * h;
+      const cx = c.x * w, cy = c.y * h;
+      const rad = Math.atan2(cy - by, cx - bx) - Math.atan2(ay - by, ax - bx);
       let deg = Math.abs(rad * 180.0 / Math.PI);
       if (deg > 180.0) deg = 360 - deg;
       return Math.round(deg);
     }
 
     // 大臂抬升角（相對於垂直向下線）
-    function calcUpperArmAngle(shoulder, elbow) {
+    function calcUpperArmAngle(shoulder, elbow, w, h) {
       const verticalDown = { x: shoulder.x, y: shoulder.y + 0.3 };
-      return calcAngle(verticalDown, shoulder, elbow);
+      return calcAngle(verticalDown, shoulder, elbow, w, h);
     }
 
-    // 出手仰角（改用「膊頭 → 手腕」整體出手線相對於水平線嘅仰角）
-    function calcReleaseAngle(shoulder, wrist) {
-      const dy = shoulder.y - wrist.y;
-      const dx = Math.abs(wrist.x - shoulder.x);
+    // 出手仰角（「膊頭 → 手腕」整體出手線相對於水平線嘅仰角，已修正像素比例）
+    function calcReleaseAngle(shoulder, wrist, w, h) {
+      const dy = (shoulder.y - wrist.y) * h;
+      const dx = Math.abs(wrist.x - shoulder.x) * w;
       return Math.round(Math.atan2(dy, dx) * 180 / Math.PI);
     }
 
@@ -304,7 +306,7 @@
         const arm = getArmLandmarks(results.poseLandmarks);
         if (arm.shoulder.visibility > 0.4 && arm.elbow.visibility > 0.4 && arm.wrist.visibility > 0.4) {
           currentArm = arm;
-          elbowAngle = calcAngle(arm.shoulder, arm.elbow, arm.wrist);
+          elbowAngle = calcAngle(arm.shoulder, arm.elbow, arm.wrist, w, h);
           const color = (elbowAngle >= 80 && elbowAngle <= 100) ? '#22c55e' : '#38bdf8';
           drawArmOverlay(canvasCtx, w, h, arm, `${elbowAngle}°`, color);
           overlayBadge.innerText = `即時偵測｜手肘夾角：${elbowAngle}°`;
@@ -326,8 +328,8 @@
             imgData: snapCanvas.toDataURL('image/jpeg', 0.7),
             arm: JSON.parse(JSON.stringify(currentArm)),
             elbowAngle: elbowAngle,
-            upperArmAngle: calcUpperArmAngle(currentArm.shoulder, currentArm.elbow),
-            releaseAngle: calcReleaseAngle(currentArm.shoulder, currentArm.wrist),
+            upperArmAngle: calcUpperArmAngle(currentArm.shoulder, currentArm.elbow, w, h),
+            releaseAngle: calcReleaseAngle(currentArm.shoulder, currentArm.wrist, w, h),
             wristY: currentArm.wrist.y
           });
         }
