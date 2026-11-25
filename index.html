@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>籃球射籃分析 (半身) - 比例修正版</title>
+  <title>籃球射籃分析 (半身) - 水平虛線版</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -212,7 +212,6 @@
     const snapCanvas = document.createElement('canvas');
     const snapCtx = snapCanvas.getContext('2d');
 
-    // 修正：乘返實際畫面闊度 w 同高度 h，避免直向/橫向比例拉扁角度
     function calcAngle(a, b, c, w, h) {
       const ax = a.x * w, ay = a.y * h;
       const bx = b.x * w, by = b.y * h;
@@ -223,13 +222,11 @@
       return Math.round(deg);
     }
 
-    // 大臂抬升角（相對於垂直向下線）
     function calcUpperArmAngle(shoulder, elbow, w, h) {
       const verticalDown = { x: shoulder.x, y: shoulder.y + 0.3 };
       return calcAngle(verticalDown, shoulder, elbow, w, h);
     }
 
-    // 出手仰角（「膊頭 → 手腕」整體出手線相對於水平線嘅仰角，已修正像素比例）
     function calcReleaseAngle(shoulder, wrist, w, h) {
       const dy = (shoulder.y - wrist.y) * h;
       const dx = Math.abs(wrist.x - shoulder.x) * w;
@@ -245,7 +242,7 @@
       };
     }
 
-    function drawArmOverlay(ctx, w, h, arm, angleText, color) {
+    function drawArmOverlay(ctx, w, h, arm, angleText, color, extra = null) {
       const sx = arm.shoulder.x * w, sy = arm.shoulder.y * h;
       const ex = arm.elbow.x * w, ey = arm.elbow.y * h;
       const wx = arm.wrist.x * w, wy = arm.wrist.y * h;
@@ -256,9 +253,42 @@
       ctx.beginPath();
       ctx.moveTo(sx, sy - 80);
       ctx.lineTo(sx, sy + 140);
-      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.45)';
       ctx.lineWidth = 2;
       ctx.stroke();
+
+      // 新增：喺「出手投射」模式畫橫向水平虛線 + 仰角弧線
+      if (extra && extra.showHorizontal) {
+        const dir = (wx >= sx) ? 1 : -1;
+        const lineLen = 170;
+
+        // 橫向水平虛線
+        ctx.beginPath();
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + dir * lineLen, sy);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // 仰角弧線
+        const wristAngle = Math.atan2(wy - sy, wx - sx);
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        if (dir === 1) {
+          ctx.arc(sx, sy, 58, 0, wristAngle, true);
+        } else {
+          ctx.arc(sx, sy, 58, Math.PI, wristAngle, false);
+        }
+        ctx.strokeStyle = extra.relColor;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // 仰角度數標籤
+        ctx.font = 'bold 22px Arial';
+        ctx.fillStyle = extra.relColor;
+        const labelX = dir === 1 ? sx + 68 : sx - 155;
+        ctx.fillText(`仰角 ${extra.releaseAngle}°`, labelX, sy - 14);
+      }
       ctx.restore();
 
       // 手臂線條
@@ -281,7 +311,7 @@
         ctx.stroke();
       });
 
-      // 角度標籤
+      // 手肘角度標籤
       ctx.font = 'bold 26px Arial';
       ctx.fillStyle = color;
       ctx.fillText(angleText, ex + 16, ey);
@@ -420,7 +450,13 @@
         } else {
           const okExt = frame.elbowAngle >= 160;
           const okRel = frame.releaseAngle >= 45 && frame.releaseAngle <= 65;
-          drawArmOverlay(canvasCtx, img.width, img.height, frame.arm, `${frame.elbowAngle}°`, okExt ? '#22c55e' : '#ef4444');
+          const relColor = okRel ? '#22c55e' : '#f59e0b';
+          drawArmOverlay(
+            canvasCtx, img.width, img.height, frame.arm,
+            `${frame.elbowAngle}°`,
+            okExt ? '#22c55e' : '#ef4444',
+            { showHorizontal: true, releaseAngle: frame.releaseAngle, relColor: relColor }
+          );
           overlayBadge.innerText = `定格 2：出手投射 (Release)`;
 
           feedbackArea.innerHTML = `
@@ -429,9 +465,9 @@
               <div class="metric-value" style="color:${okExt ? '#22c55e' : '#ef4444'}">${frame.elbowAngle}° ${okExt ? '✅ 達標' : '⚠️ 未伸直'}</div>
               <div class="metric-hint">${okExt ? '手臂完全伸直，發力充分！' : '出手有少少縮手，記得推盡隻手。'}</div>
             </div>
-            <div class="metric-card" style="border-left-color:${okRel ? '#22c55e' : '#f59e0b'}">
+            <div class="metric-card" style="border-left-color:${relColor}">
               <div class="metric-title">出手仰角 (理想：45°–65°)</div>
-              <div class="metric-value" style="color:${okRel ? '#22c55e' : '#f59e0b'}">${frame.releaseAngle}° ${okRel ? '✅ 達標' : '⚠️ 需微調'}</div>
+              <div class="metric-value" style="color:${relColor}">${frame.releaseAngle}° ${okRel ? '✅ 達標' : '⚠️ 需微調'}</div>
               <div class="metric-hint">${frame.releaseAngle < 45 ? '出手太低太平，容易炒粉。' : frame.releaseAngle > 65 ? '抬得太高，拋物線過高唔夠力。' : '拋物線仰角非常理想！'}</div>
             </div>
           `;
