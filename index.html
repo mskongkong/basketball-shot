@@ -2,182 +2,486 @@
 <html lang="zh-HK">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>籃球射籃分析 - 第 1 關測試</title>
-  <!-- 引入 Google MediaPipe Pose AI 工具 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>籃球射籃分析 (半身) - 第 2 關</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
+    * { box-sizing: border-box; }
     body {
       margin: 0;
-      background-color: #111;
-      color: white;
+      background-color: #0f172a;
+      color: #f8fafc;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      height: 100vh;
-      overflow: hidden;
+      min-height: 100vh;
+      padding: 12px;
     }
-    #container {
+    header {
+      width: 100%;
+      max-width: 960px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    h1 { margin: 0; font-size: 20px; color: #38bdf8; }
+    .controls-top { display: flex; gap: 8px; align-items: center; }
+    select, button {
+      font-size: 15px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    select { background: #1e293b; color: white; border: 1px solid #475569; }
+    .btn-record { background: #ef4444; color: white; font-size: 16px; padding: 10px 22px; }
+    .btn-record:disabled { background: #64748b; cursor: not-allowed; }
+    .btn-secondary { background: #334155; color: white; }
+    .btn-tab { background: #1e293b; color: #94a3b8; border: 1px solid #334155; flex: 1; }
+    .btn-tab.active { background: #0284c7; color: white; border-color: #38bdf8; }
+
+    .main-layout {
+      display: flex;
+      gap: 14px;
+      width: 100%;
+      max-width: 960px;
+      flex-wrap: wrap;
+    }
+    .video-panel {
+      flex: 2;
+      min-width: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #stage-container {
       position: relative;
       width: 100%;
-      max-width: 800px;
       aspect-ratio: 4 / 3;
       background: #000;
       border-radius: 12px;
       overflow: hidden;
+      border: 2px solid #334155;
     }
-    video {
-      display: none; /* 隱藏原始影片，只顯示畫咗骨架嘅 Canvas */
-    }
-    canvas {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-    }
-    #status-box {
+    video { display: none; }
+    canvas { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+    #overlay-badge {
       position: absolute;
-      top: 16px;
-      left: 16px;
-      background: rgba(0, 0, 0, 0.7);
-      padding: 12px 20px;
-      border-radius: 10px;
-      font-size: 20px;
+      top: 12px;
+      left: 12px;
+      background: rgba(15, 23, 42, 0.85);
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 15px;
       font-weight: bold;
-      border-left: 6px solid #888;
+      border-left: 5px solid #38bdf8;
     }
-    .loading {
+    #rec-indicator {
       position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 18px;
-      color: #aaa;
+      top: 12px;
+      right: 12px;
+      background: #ef4444;
+      color: white;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-weight: bold;
+      display: none;
+      animation: pulse 1s infinite;
     }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    .side-panel {
+      flex: 1;
+      min-width: 260px;
+      background: #1e293b;
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .tab-group { display: flex; gap: 8px; }
+    .metric-card {
+      background: #0f172a;
+      padding: 12px;
+      border-radius: 8px;
+      border-left: 5px solid #64748b;
+    }
+    .metric-title { font-size: 13px; color: #94a3b8; }
+    .metric-value { font-size: 22px; font-weight: bold; margin: 4px 0; }
+    .metric-hint { font-size: 13px; color: #cbd5e1; line-height: 1.4; }
+
+    .scrubber-box {
+      background: #1e293b;
+      padding: 10px 14px;
+      border-radius: 10px;
+      display: none;
+      flex-direction: column;
+      gap: 6px;
+    }
+    input[type="range"] { width: 100%; accent-color: #38bdf8; }
+    .action-bar { display: flex; justify-content: center; gap: 12px; }
   </style>
 </head>
 <body>
 
-  <div id="container">
-    <div id="loading-text" class="loading">正在載入 AI 模型及開啟鏡頭，請稍候...</div>
-    <video id="input_video" playsinline autoplay muted></video>
-    <canvas id="output_canvas"></canvas>
-    <div id="status-box">等待偵測右手...</div>
+  <header>
+    <h1>🏀 籃球射籃分析 (半身)</h1>
+    <div class="controls-top">
+      <label for="hand-select" style="font-size:14px; color:#94a3b8;">慣用手：</label>
+      <select id="hand-select">
+        <option value="right">右手</option>
+        <option value="left">左手</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="main-layout">
+    <div class="video-panel">
+      <div id="stage-container">
+        <video id="input_video" playsinline autoplay muted></video>
+        <canvas id="output_canvas"></canvas>
+        <div id="overlay-badge">正在載入 AI 模型...</div>
+        <div id="rec-indicator">● 錄影中 4.0s</div>
+      </div>
+
+      <!-- 微調滑桿（分析模式顯示） -->
+      <div id="scrubber-box" class="scrubber-box">
+        <div style="display:flex; justify-content:space-between; font-size:13px; color:#94a3b8;">
+          <span>手動微調影格 (如 AI 捉錯格可左右拉動)</span>
+          <span id="frame-counter">第 0 / 0 格</span>
+        </div>
+        <input type="range" id="frame-slider" min="0" max="0" value="0">
+      </div>
+
+      <div class="action-bar">
+        <button id="btn-record" class="btn-record">● 開始錄影 (4秒)</button>
+        <button id="btn-reset" class="btn-secondary" style="display:none;">🔄 重新拍攝</button>
+      </div>
+    </div>
+
+    <!-- 右側評語與數據區 -->
+    <div class="side-panel">
+      <div id="result-tabs" class="tab-group" style="display:none;">
+        <button id="tab-set" class="btn-tab active">1. 準備舉球</button>
+        <button id="tab-release" class="btn-tab">2. 出手投射</button>
+      </div>
+
+      <div id="feedback-area">
+        <div style="color:#94a3b8; font-size:14px; line-height:1.6;">
+          <p><strong>操作步驟：</strong></p>
+          <p>1. 請企喺射籃者<strong>正側面 90°</strong>（距離約 1.5–2 米，拍腰部以上）。</p>
+          <p>2. 撳紅色<strong>「開始錄影」</strong>，喺 4 秒內完成一次射籃動作。</p>
+          <p>3. 系統會自動捉出「準備」同「出手」兩張定格相並評分！</p>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
     const videoElement = document.getElementById('input_video');
     const canvasElement = document.getElementById('output_canvas');
     const canvasCtx = canvasElement.getContext('2d');
-    const statusBox = document.getElementById('status-box');
-    const loadingText = document.getElementById('loading-text');
+    const overlayBadge = document.getElementById('overlay-badge');
+    const recIndicator = document.getElementById('rec-indicator');
+    const btnRecord = document.getElementById('btn-record');
+    const btnReset = document.getElementById('btn-reset');
+    const handSelect = document.getElementById('hand-select');
+    const scrubberBox = document.getElementById('scrubber-box');
+    const frameSlider = document.getElementById('frame-slider');
+    const frameCounter = document.getElementById('frame-counter');
+    const resultTabs = document.getElementById('result-tabs');
+    const tabSet = document.getElementById('tab-set');
+    const tabRelease = document.getElementById('tab-release');
+    const feedbackArea = document.getElementById('feedback-area');
 
-    // 計算三點夾角公式 (A: 膊頭, B: 手肘, C: 手腕)
-    function calculateAngle(a, b, c) {
-      const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-      let angle = Math.abs(radians * 180.0 / Math.PI);
-      if (angle > 180.0) {
-        angle = 360 - angle;
-      }
-      return Math.round(angle);
+    // 系統狀態：live（即時）, recording（錄影中）, review（檢視定格）
+    let mode = 'live';
+    let recordedFrames = [];
+    let recordStartTime = 0;
+    const RECORD_DURATION = 4000; // 4 秒
+
+    let setPointIndex = 0;
+    let releasePointIndex = 0;
+    let currentTab = 'set'; // 'set' 或 'release'
+
+    // 離屏 Canvas 用於儲存每一格畫面
+    const snapCanvas = document.createElement('canvas');
+    const snapCtx = snapCanvas.getContext('2d');
+
+    function calcAngle(a, b, c) {
+      const rad = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+      let deg = Math.abs(rad * 180.0 / Math.PI);
+      if (deg > 180.0) deg = 360 - deg;
+      return Math.round(deg);
     }
 
-    // 每次 AI 偵測到畫面時執行
+    // 計算大臂抬升角（相對於垂直向下線）
+    function calcUpperArmAngle(shoulder, elbow) {
+      const verticalDown = { x: shoulder.x, y: shoulder.y + 0.3 };
+      return calcAngle(verticalDown, shoulder, elbow);
+    }
+
+    // 計算出手仰角（手臂相對於水平線向上嘅角度）
+    function calcReleaseAngle(shoulder, elbow) {
+      const dy = shoulder.y - elbow.y; // y 向上係細，所以 shoulder.y - elbow.y > 0 代表向上
+      const dx = Math.abs(elbow.x - shoulder.x);
+      return Math.round(Math.atan2(dy, dx) * 180 / Math.PI);
+    }
+
+    function getArmLandmarks(lm) {
+      const isRight = handSelect.value === 'right';
+      return {
+        shoulder: lm[isRight ? 12 : 11],
+        elbow: lm[isRight ? 14 : 13],
+        wrist: lm[isRight ? 16 : 15]
+      };
+    }
+
+    function drawArmOverlay(ctx, w, h, arm, angleText, color) {
+      const sx = arm.shoulder.x * w, sy = arm.shoulder.y * h;
+      const ex = arm.elbow.x * w, ey = arm.elbow.y * h;
+      const wx = arm.wrist.x * w, wy = arm.wrist.y * h;
+
+      // 畫垂直參考虛線（穿過膊頭）
+      ctx.save();
+      ctx.setLineDash([6, 6]);
+      ctx.beginPath();
+      ctx.moveTo(sx, sy - 80);
+      ctx.lineTo(sx, sy + 140);
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+
+      // 畫手臂線條
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(ex, ey);
+      ctx.lineTo(wx, wy);
+      ctx.lineWidth = 7;
+      ctx.strokeStyle = color;
+      ctx.stroke();
+
+      // 畫關節點
+      [[sx, sy], [ex, ey], [wx, wy]].forEach(([x, y]) => {
+        ctx.beginPath();
+        ctx.arc(x, y, 9, 0, 2 * Math.PI);
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = color;
+        ctx.stroke();
+      });
+
+      // 畫角度標籤
+      ctx.font = 'bold 26px Arial';
+      ctx.fillStyle = color;
+      ctx.fillText(angleText, ex + 16, ey);
+    }
+
     function onResults(results) {
-      loadingText.style.display = 'none';
-      canvasElement.width = videoElement.videoWidth;
-      canvasElement.height = videoElement.videoHeight;
+      if (mode === 'review') return;
+
+      const w = videoElement.videoWidth || 640;
+      const h = videoElement.videoHeight || 480;
+      canvasElement.width = w;
+      canvasElement.height = h;
 
       canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      // 畫出鏡頭畫面
-      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.clearRect(0, 0, w, h);
+      canvasCtx.drawImage(results.image, 0, 0, w, h);
+
+      let currentArm = null;
+      let elbowAngle = null;
 
       if (results.poseLandmarks) {
-        const lm = results.poseLandmarks;
-        // 12: 右膊頭, 14: 右手肘, 16: 右手腕
-        const shoulder = lm[12];
-        const elbow = lm[14];
-        const wrist = lm[16];
+        const arm = getArmLandmarks(results.poseLandmarks);
+        if (arm.shoulder.visibility > 0.4 && arm.elbow.visibility > 0.4 && arm.wrist.visibility > 0.4) {
+          currentArm = arm;
+          elbowAngle = calcAngle(arm.shoulder, arm.elbow, arm.wrist);
+          const color = (elbowAngle >= 80 && elbowAngle <= 100) ? '#22c55e' : '#38bdf8';
+          drawArmOverlay(canvasCtx, w, h, arm, `${elbowAngle}°`, color);
+          overlayBadge.innerText = `即時偵測｜手肘夾角：${elbowAngle}°`;
+        } else {
+          overlayBadge.innerText = '請企入側面鏡頭範圍（確保手臂清晰）';
+        }
+      }
 
-        // 確保三個關節都清晰可見
-        if (shoulder.visibility > 0.5 && elbow.visibility > 0.5 && wrist.visibility > 0.5) {
-          const angle = calculateAngle(shoulder, elbow, wrist);
+      // 錄影模式：儲存畫面同數據
+      if (mode === 'recording') {
+        const elapsed = Date.now() - recordStartTime;
+        const remain = Math.max(0, (RECORD_DURATION - elapsed) / 1000).toFixed(1);
+        recIndicator.innerText = `● 錄影中 ${remain}s`;
 
-          // 判斷顏色：80-100度為準備期理想區間（綠燈）
-          let color = '#ff4d4f'; // 紅
-          let text = `手肘夾角：${angle}°`;
-          if (angle >= 80 && angle <= 100) {
-            color = '#52c41a'; // 綠
-            text = `手肘夾角：${angle}° (準備動作達標！)`;
-          } else if (angle >= 160) {
-            color = '#1890ff'; // 藍
-            text = `手肘夾角：${angle}° (手臂已伸直！)`;
-          }
-
-          // 更新左上角狀態欄
-          statusBox.innerText = text;
-          statusBox.style.borderLeftColor = color;
-          statusBox.style.color = color;
-
-          // 轉換座標並畫線
-          const w = canvasElement.width;
-          const h = canvasElement.height;
-          const sx = shoulder.x * w, sy = shoulder.y * h;
-          const ex = elbow.x * w, ey = elbow.y * h;
-          const wx = wrist.x * w, wy = wrist.y * h;
-
-          // 畫手臂線條
-          canvasCtx.beginPath();
-          canvasCtx.moveTo(sx, sy);
-          canvasCtx.lineTo(ex, ey);
-          canvasCtx.lineTo(wx, wy);
-          canvasCtx.lineWidth = 8;
-          canvasCtx.strokeStyle = color;
-          canvasCtx.stroke();
-
-          // 畫關節圓點
-          [ [sx, sy], [ex, ey], [wx, wy] ].forEach(([x, y]) => {
-            canvasCtx.beginPath();
-            canvasCtx.arc(x, y, 10, 0, 2 * Math.PI);
-            canvasCtx.fillStyle = '#ffffff';
-            canvasCtx.fill();
-            canvasCtx.lineWidth = 3;
-            canvasCtx.strokeStyle = color;
-            canvasCtx.stroke();
+        if (currentArm) {
+          snapCanvas.width = w;
+          snapCanvas.height = h;
+          snapCtx.drawImage(results.image, 0, 0, w, h);
+          recordedFrames.push({
+            imgData: snapCanvas.toDataURL('image/jpeg', 0.7),
+            arm: JSON.parse(JSON.stringify(currentArm)),
+            elbowAngle: elbowAngle,
+            upperArmAngle: calcUpperArmAngle(currentArm.shoulder, currentArm.elbow),
+            releaseAngle: calcReleaseAngle(currentArm.shoulder, currentArm.elbow),
+            wristY: currentArm.wrist.y
           });
+        }
 
-          // 喺手肘隔離直接顯示度數
-          canvasCtx.font = 'bold 32px Arial';
-          canvasCtx.fillStyle = color;
-          canvasCtx.fillText(`${angle}°`, ex + 20, ey);
+        if (elapsed >= RECORD_DURATION) {
+          finishRecording();
         }
       }
       canvasCtx.restore();
     }
 
-    // 初始化 MediaPipe Pose
+    function finishRecording() {
+      mode = 'review';
+      recIndicator.style.display = 'none';
+      btnRecord.style.display = 'none';
+      btnReset.style.display = 'inline-block';
+
+      if (recordedFrames.length < 5) {
+        overlayBadge.innerText = '偵測唔到足夠手臂畫面，請重新拍攝！';
+        return;
+      }
+
+      // 自動捉定格 2：出手最高點（wristY 最細，即畫面上最高）
+      let minWristY = 999;
+      releasePointIndex = 0;
+      recordedFrames.forEach((f, idx) => {
+        if (f.wristY < minWristY) {
+          minWristY = f.wristY;
+          releasePointIndex = idx;
+        }
+      });
+
+      // 自動捉定格 1：準備舉球（喺出手之前，手肘夾角最細嗰格）
+      let minElbow = 999;
+      setPointIndex = 0;
+      const searchLimit = Math.max(1, releasePointIndex);
+      for (let i = 0; i < searchLimit; i++) {
+        if (recordedFrames[i].elbowAngle < minElbow) {
+          minElbow = recordedFrames[i].elbowAngle;
+          setPointIndex = i;
+        }
+      }
+
+      // 開啟滑桿同切換掣
+      frameSlider.max = recordedFrames.length - 1;
+      scrubberBox.style.display = 'flex';
+      resultTabs.style.display = 'flex';
+
+      showTab('set');
+    }
+
+    function showTab(tabName) {
+      currentTab = tabName;
+      tabSet.classList.toggle('active', tabName === 'set');
+      tabRelease.classList.toggle('active', tabName === 'release');
+      const idx = tabName === 'set' ? setPointIndex : releasePointIndex;
+      frameSlider.value = idx;
+      renderReviewFrame(idx);
+    }
+
+    function renderReviewFrame(idx) {
+      const frame = recordedFrames[idx];
+      if (!frame) return;
+      frameCounter.innerText = `第 ${idx + 1} / ${recordedFrames.length} 格`;
+
+      const img = new Image();
+      img.onload = () => {
+        canvasElement.width = img.width;
+        canvasElement.height = img.height;
+        canvasCtx.clearRect(0, 0, img.width, img.height);
+        canvasCtx.drawImage(img, 0, 0);
+
+        if (currentTab === 'set') {
+          const okElbow = frame.elbowAngle >= 80 && frame.elbowAngle <= 100;
+          const okUpper = frame.upperArmAngle >= 45 && frame.upperArmAngle <= 75;
+          drawArmOverlay(canvasCtx, img.width, img.height, frame.arm, `${frame.elbowAngle}°`, okElbow ? '#22c55e' : '#ef4444');
+          overlayBadge.innerText = `定格 1：準備舉球 (Set Point)`;
+
+          feedbackArea.innerHTML = `
+            <div class="metric-card" style="border-left-color:${okElbow ? '#22c55e' : '#ef4444'}">
+              <div class="metric-title">手肘夾角 (理想：80°–100°)</div>
+              <div class="metric-value" style="color:${okElbow ? '#22c55e' : '#ef4444'}">${frame.elbowAngle}° ${okElbow ? '✅ 達標' : '⚠️ 需微調'}</div>
+              <div class="metric-hint">${frame.elbowAngle < 80 ? '手肘收得太死，個波太貼面。' : frame.elbowAngle > 100 ? '手臂太開，發力容易散。' : '準備角度非常標準！'}</div>
+            </div>
+            <div class="metric-card" style="border-left-color:${okUpper ? '#22c55e' : '#f59e0b'}">
+              <div class="metric-title">大臂抬升角 (理想：45°–75°)</div>
+              <div class="metric-value" style="color:${okUpper ? '#22c55e' : '#f59e0b'}">${frame.upperArmAngle}° ${okUpper ? '✅ 達標' : '⚠️ 需微調'}</div>
+              <div class="metric-hint">${frame.upperArmAngle < 45 ? '舉波太低，似喺胸口推波。' : frame.upperArmAngle > 75 ? '手肘抬得太高，發力唔順。' : '舉球高度適中！'}</div>
+            </div>
+          `;
+        } else {
+          const okExt = frame.elbowAngle >= 160;
+          const okRel = frame.releaseAngle >= 45 && frame.releaseAngle <= 60;
+          drawArmOverlay(canvasCtx, img.width, img.height, frame.arm, `${frame.elbowAngle}°`, okExt ? '#22c55e' : '#ef4444');
+          overlayBadge.innerText = `定格 2：出手投射 (Release)`;
+
+          feedbackArea.innerHTML = `
+            <div class="metric-card" style="border-left-color:${okExt ? '#22c55e' : '#ef4444'}">
+              <div class="metric-title">手臂伸展度 (理想：160°–180°)</div>
+              <div class="metric-value" style="color:${okExt ? '#22c55e' : '#ef4444'}">${frame.elbowAngle}° ${okExt ? '✅ 達標' : '⚠️ 未伸直'}</div>
+              <div class="metric-hint">${okExt ? '手臂完全伸直，發力充分！' : '出手有少少縮手，記得推盡隻手。'}</div>
+            </div>
+            <div class="metric-card" style="border-left-color:${okRel ? '#22c55e' : '#f59e0b'}">
+              <div class="metric-title">出手仰角 (理想：45°–60°)</div>
+              <div class="metric-value" style="color:${okRel ? '#22c55e' : '#f59e0b'}">${frame.releaseAngle}° ${okRel ? '✅ 達標' : '⚠️ 需微調'}</div>
+              <div class="metric-hint">${frame.releaseAngle < 45 ? '出手太低太平，容易炒粉。' : frame.releaseAngle > 60 ? '抬得太高，拋物線過高唔夠力。' : '拋物線仰角非常理想！'}</div>
+            </div>
+          `;
+        }
+      };
+      img.src = frame.imgData;
+    }
+
+    // 按鈕事件
+    btnRecord.addEventListener('click', () => {
+      recordedFrames = [];
+      recordStartTime = Date.now();
+      mode = 'recording';
+      recIndicator.style.display = 'block';
+      btnRecord.disabled = true;
+    });
+
+    btnReset.addEventListener('click', () => {
+      mode = 'live';
+      btnRecord.style.display = 'inline-block';
+      btnRecord.disabled = false;
+      btnReset.style.display = 'none';
+      scrubberBox.style.display = 'none';
+      resultTabs.style.display = 'none';
+      feedbackArea.innerHTML = '<div style="color:#94a3b8; font-size:14px;">已返回即時鏡頭，準備好可隨時再錄影。</div>';
+    });
+
+    tabSet.addEventListener('click', () => showTab('set'));
+    tabRelease.addEventListener('click', () => showTab('release'));
+    frameSlider.addEventListener('input', (e) => {
+      const idx = parseInt(e.target.value, 10);
+      if (currentTab === 'set') setPointIndex = idx;
+      else releasePointIndex = idx;
+      renderReviewFrame(idx);
+    });
+
+    // 啟動 MediaPipe 與鏡頭
     const pose = new Pose({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
     });
-    pose.setOptions({
-      modelComplexity: 1,
-      smoothLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
+    pose.setOptions({ modelComplexity: 1, smoothLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
     pose.onResults(onResults);
 
-    // 開啟鏡頭（手機/iPad 會優先用後置鏡頭，電腦用 Webcam）
     const camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await pose.send({image: videoElement});
-      },
-      width: 640,
-      height: 480,
-      facingMode: 'environment'
+      onFrame: async () => { await pose.send({ image: videoElement }); },
+      width: 640, height: 480, facingMode: 'environment'
     });
     camera.start();
   </script>
