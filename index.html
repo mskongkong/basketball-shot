@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>籃球射籃分析 - 第 1 關測試</title>
+  <!-- 引入 Google MediaPipe Pose AI 工具 -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
+  <style>
+    body {
+      margin: 0;
+      background-color: #111;
+      color: white;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #container {
+      position: relative;
+      width: 100%;
+      max-width: 800px;
+      aspect-ratio: 4 / 3;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    video {
+      display: none; /* 隱藏原始影片，只顯示畫咗骨架嘅 Canvas */
+    }
+    canvas {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    #status-box {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background: rgba(0, 0, 0, 0.7);
+      padding: 12px 20px;
+      border-radius: 10px;
+      font-size: 20px;
+      font-weight: bold;
+      border-left: 6px solid #888;
+    }
+    .loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 18px;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="container">
+    <div id="loading-text" class="loading">正在載入 AI 模型及開啟鏡頭，請稍候...</div>
+    <video id="input_video" playsinline autoplay muted></video>
+    <canvas id="output_canvas"></canvas>
+    <div id="status-box">等待偵測右手...</div>
+  </div>
+
+  <script>
+    const videoElement = document.getElementById('input_video');
+    const canvasElement = document.getElementById('output_canvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const statusBox = document.getElementById('status-box');
+    const loadingText = document.getElementById('loading-text');
+
+    // 計算三點夾角公式 (A: 膊頭, B: 手肘, C: 手腕)
+    function calculateAngle(a, b, c) {
+      const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+      let angle = Math.abs(radians * 180.0 / Math.PI);
+      if (angle > 180.0) {
+        angle = 360 - angle;
+      }
+      return Math.round(angle);
+    }
+
+    // 每次 AI 偵測到畫面時執行
+    function onResults(results) {
+      loadingText.style.display = 'none';
+      canvasElement.width = videoElement.videoWidth;
+      canvasElement.height = videoElement.videoHeight;
+
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      // 畫出鏡頭畫面
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.poseLandmarks) {
+        const lm = results.poseLandmarks;
+        // 12: 右膊頭, 14: 右手肘, 16: 右手腕
+        const shoulder = lm[12];
+        const elbow = lm[14];
+        const wrist = lm[16];
+
+        // 確保三個關節都清晰可見
+        if (shoulder.visibility > 0.5 && elbow.visibility > 0.5 && wrist.visibility > 0.5) {
+          const angle = calculateAngle(shoulder, elbow, wrist);
+
+          // 判斷顏色：80-100度為準備期理想區間（綠燈）
+          let color = '#ff4d4f'; // 紅
+          let text = `手肘夾角：${angle}°`;
+          if (angle >= 80 && angle <= 100) {
+            color = '#52c41a'; // 綠
+            text = `手肘夾角：${angle}° (準備動作達標！)`;
+          } else if (angle >= 160) {
+            color = '#1890ff'; // 藍
+            text = `手肘夾角：${angle}° (手臂已伸直！)`;
+          }
+
+          // 更新左上角狀態欄
+          statusBox.innerText = text;
+          statusBox.style.borderLeftColor = color;
+          statusBox.style.color = color;
+
+          // 轉換座標並畫線
+          const w = canvasElement.width;
+          const h = canvasElement.height;
+          const sx = shoulder.x * w, sy = shoulder.y * h;
+          const ex = elbow.x * w, ey = elbow.y * h;
+          const wx = wrist.x * w, wy = wrist.y * h;
+
+          // 畫手臂線條
+          canvasCtx.beginPath();
+          canvasCtx.moveTo(sx, sy);
+          canvasCtx.lineTo(ex, ey);
+          canvasCtx.lineTo(wx, wy);
+          canvasCtx.lineWidth = 8;
+          canvasCtx.strokeStyle = color;
+          canvasCtx.stroke();
+
+          // 畫關節圓點
+          [ [sx, sy], [ex, ey], [wx, wy] ].forEach(([x, y]) => {
+            canvasCtx.beginPath();
+            canvasCtx.arc(x, y, 10, 0, 2 * Math.PI);
+            canvasCtx.fillStyle = '#ffffff';
+            canvasCtx.fill();
+            canvasCtx.lineWidth = 3;
+            canvasCtx.strokeStyle = color;
+            canvasCtx.stroke();
+          });
+
+          // 喺手肘隔離直接顯示度數
+          canvasCtx.font = 'bold 32px Arial';
+          canvasCtx.fillStyle = color;
+          canvasCtx.fillText(`${angle}°`, ex + 20, ey);
+        }
+      }
+      canvasCtx.restore();
+    }
+
+    // 初始化 MediaPipe Pose
+    const pose = new Pose({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
+    });
+    pose.setOptions({
+      modelComplexity: 1,
+      smoothLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+    pose.onResults(onResults);
+
+    // 開啟鏡頭（手機/iPad 會優先用後置鏡頭，電腦用 Webcam）
+    const camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await pose.send({image: videoElement});
+      },
+      width: 640,
+      height: 480,
+      facingMode: 'environment'
+    });
+    camera.start();
+  </script>
+</body>
+</html>
