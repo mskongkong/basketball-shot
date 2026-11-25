@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>籃球射籃分析 (半身) - 第 2 關</title>
+  <title>籃球射籃分析 (半身) - 角度微調版</title>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js" crossorigin="anonymous"></script>
   <style>
@@ -202,17 +202,15 @@
     const tabRelease = document.getElementById('tab-release');
     const feedbackArea = document.getElementById('feedback-area');
 
-    // 系統狀態：live（即時）, recording（錄影中）, review（檢視定格）
     let mode = 'live';
     let recordedFrames = [];
     let recordStartTime = 0;
-    const RECORD_DURATION = 4000; // 4 秒
+    const RECORD_DURATION = 4000;
 
     let setPointIndex = 0;
     let releasePointIndex = 0;
-    let currentTab = 'set'; // 'set' 或 'release'
+    let currentTab = 'set';
 
-    // 離屏 Canvas 用於儲存每一格畫面
     const snapCanvas = document.createElement('canvas');
     const snapCtx = snapCanvas.getContext('2d');
 
@@ -223,16 +221,16 @@
       return Math.round(deg);
     }
 
-    // 計算大臂抬升角（相對於垂直向下線）
+    // 大臂抬升角（相對於垂直向下線）
     function calcUpperArmAngle(shoulder, elbow) {
       const verticalDown = { x: shoulder.x, y: shoulder.y + 0.3 };
       return calcAngle(verticalDown, shoulder, elbow);
     }
 
-    // 計算出手仰角（手臂相對於水平線向上嘅角度）
-    function calcReleaseAngle(shoulder, elbow) {
-      const dy = shoulder.y - elbow.y; // y 向上係細，所以 shoulder.y - elbow.y > 0 代表向上
-      const dx = Math.abs(elbow.x - shoulder.x);
+    // 出手仰角（改用「膊頭 → 手腕」整體出手線相對於水平線嘅仰角）
+    function calcReleaseAngle(shoulder, wrist) {
+      const dy = shoulder.y - wrist.y;
+      const dx = Math.abs(wrist.x - shoulder.x);
       return Math.round(Math.atan2(dy, dx) * 180 / Math.PI);
     }
 
@@ -250,7 +248,7 @@
       const ex = arm.elbow.x * w, ey = arm.elbow.y * h;
       const wx = arm.wrist.x * w, wy = arm.wrist.y * h;
 
-      // 畫垂直參考虛線（穿過膊頭）
+      // 垂直參考虛線（穿過膊頭）
       ctx.save();
       ctx.setLineDash([6, 6]);
       ctx.beginPath();
@@ -261,7 +259,7 @@
       ctx.stroke();
       ctx.restore();
 
-      // 畫手臂線條
+      // 手臂線條
       ctx.beginPath();
       ctx.moveTo(sx, sy);
       ctx.lineTo(ex, ey);
@@ -270,7 +268,7 @@
       ctx.strokeStyle = color;
       ctx.stroke();
 
-      // 畫關節點
+      // 關節點
       [[sx, sy], [ex, ey], [wx, wy]].forEach(([x, y]) => {
         ctx.beginPath();
         ctx.arc(x, y, 9, 0, 2 * Math.PI);
@@ -281,7 +279,7 @@
         ctx.stroke();
       });
 
-      // 畫角度標籤
+      // 角度標籤
       ctx.font = 'bold 26px Arial';
       ctx.fillStyle = color;
       ctx.fillText(angleText, ex + 16, ey);
@@ -315,7 +313,6 @@
         }
       }
 
-      // 錄影模式：儲存畫面同數據
       if (mode === 'recording') {
         const elapsed = Date.now() - recordStartTime;
         const remain = Math.max(0, (RECORD_DURATION - elapsed) / 1000).toFixed(1);
@@ -330,7 +327,7 @@
             arm: JSON.parse(JSON.stringify(currentArm)),
             elbowAngle: elbowAngle,
             upperArmAngle: calcUpperArmAngle(currentArm.shoulder, currentArm.elbow),
-            releaseAngle: calcReleaseAngle(currentArm.shoulder, currentArm.elbow),
+            releaseAngle: calcReleaseAngle(currentArm.shoulder, currentArm.wrist),
             wristY: currentArm.wrist.y
           });
         }
@@ -353,7 +350,6 @@
         return;
       }
 
-      // 自動捉定格 2：出手最高點（wristY 最細，即畫面上最高）
       let minWristY = 999;
       releasePointIndex = 0;
       recordedFrames.forEach((f, idx) => {
@@ -363,7 +359,6 @@
         }
       });
 
-      // 自動捉定格 1：準備舉球（喺出手之前，手肘夾角最細嗰格）
       let minElbow = 999;
       setPointIndex = 0;
       const searchLimit = Math.max(1, releasePointIndex);
@@ -374,7 +369,6 @@
         }
       }
 
-      // 開啟滑桿同切換掣
       frameSlider.max = recordedFrames.length - 1;
       scrubberBox.style.display = 'flex';
       resultTabs.style.display = 'flex';
@@ -405,7 +399,7 @@
 
         if (currentTab === 'set') {
           const okElbow = frame.elbowAngle >= 80 && frame.elbowAngle <= 100;
-          const okUpper = frame.upperArmAngle >= 45 && frame.upperArmAngle <= 75;
+          const okUpper = frame.upperArmAngle >= 60 && frame.upperArmAngle <= 95;
           drawArmOverlay(canvasCtx, img.width, img.height, frame.arm, `${frame.elbowAngle}°`, okElbow ? '#22c55e' : '#ef4444');
           overlayBadge.innerText = `定格 1：準備舉球 (Set Point)`;
 
@@ -416,14 +410,14 @@
               <div class="metric-hint">${frame.elbowAngle < 80 ? '手肘收得太死，個波太貼面。' : frame.elbowAngle > 100 ? '手臂太開，發力容易散。' : '準備角度非常標準！'}</div>
             </div>
             <div class="metric-card" style="border-left-color:${okUpper ? '#22c55e' : '#f59e0b'}">
-              <div class="metric-title">大臂抬升角 (理想：45°–75°)</div>
+              <div class="metric-title">大臂抬升角 (理想：60°–95°)</div>
               <div class="metric-value" style="color:${okUpper ? '#22c55e' : '#f59e0b'}">${frame.upperArmAngle}° ${okUpper ? '✅ 達標' : '⚠️ 需微調'}</div>
-              <div class="metric-hint">${frame.upperArmAngle < 45 ? '舉波太低，似喺胸口推波。' : frame.upperArmAngle > 75 ? '手肘抬得太高，發力唔順。' : '舉球高度適中！'}</div>
+              <div class="metric-hint">${frame.upperArmAngle < 60 ? '舉波太低，似喺胸口推波。' : frame.upperArmAngle > 95 ? '手肘抬得過高，發力唔順。' : '舉球高度適中！'}</div>
             </div>
           `;
         } else {
           const okExt = frame.elbowAngle >= 160;
-          const okRel = frame.releaseAngle >= 45 && frame.releaseAngle <= 60;
+          const okRel = frame.releaseAngle >= 45 && frame.releaseAngle <= 65;
           drawArmOverlay(canvasCtx, img.width, img.height, frame.arm, `${frame.elbowAngle}°`, okExt ? '#22c55e' : '#ef4444');
           overlayBadge.innerText = `定格 2：出手投射 (Release)`;
 
@@ -434,9 +428,9 @@
               <div class="metric-hint">${okExt ? '手臂完全伸直，發力充分！' : '出手有少少縮手，記得推盡隻手。'}</div>
             </div>
             <div class="metric-card" style="border-left-color:${okRel ? '#22c55e' : '#f59e0b'}">
-              <div class="metric-title">出手仰角 (理想：45°–60°)</div>
+              <div class="metric-title">出手仰角 (理想：45°–65°)</div>
               <div class="metric-value" style="color:${okRel ? '#22c55e' : '#f59e0b'}">${frame.releaseAngle}° ${okRel ? '✅ 達標' : '⚠️ 需微調'}</div>
-              <div class="metric-hint">${frame.releaseAngle < 45 ? '出手太低太平，容易炒粉。' : frame.releaseAngle > 60 ? '抬得太高，拋物線過高唔夠力。' : '拋物線仰角非常理想！'}</div>
+              <div class="metric-hint">${frame.releaseAngle < 45 ? '出手太低太平，容易炒粉。' : frame.releaseAngle > 65 ? '抬得太高，拋物線過高唔夠力。' : '拋物線仰角非常理想！'}</div>
             </div>
           `;
         }
@@ -444,7 +438,6 @@
       img.src = frame.imgData;
     }
 
-    // 按鈕事件
     btnRecord.addEventListener('click', () => {
       recordedFrames = [];
       recordStartTime = Date.now();
@@ -472,7 +465,6 @@
       renderReviewFrame(idx);
     });
 
-    // 啟動 MediaPipe 與鏡頭
     const pose = new Pose({
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
     });
